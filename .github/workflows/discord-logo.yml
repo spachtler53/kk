@@ -1,6 +1,7 @@
 name: Discord Logo GIF
 
 on:
+  # Manual trigger with full customization
   workflow_dispatch:
     inputs:
       src_path:
@@ -37,6 +38,17 @@ on:
         type: choice
         options: ["true", "false"]
         default: "true"
+  
+  # Automatic triggers
+  push:
+    branches: [main, master]
+    paths: 
+      - 'assets/logo.png'
+      - 'assets/*.png'
+  
+  # Weekly automatic generation (Sundays at 12:00 UTC)
+  schedule:
+    - cron: '0 12 * * 0'
 
 permissions:
   contents: write
@@ -56,11 +68,34 @@ jobs:
       - name: Install dependencies
         run: pip install pillow
 
+      - name: Set default parameters for automatic triggers
+        id: defaults
+        shell: bash
+        run: |
+          # Set defaults for automatic triggers (when no manual inputs)
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "SRC_PATH=assets/logo.png" >> $GITHUB_OUTPUT
+            echo "SIZE=512" >> $GITHUB_OUTPUT
+            echo "FRAMES=40" >> $GITHUB_OUTPUT
+            echo "FPS=20" >> $GITHUB_OUTPUT
+            echo "GLOW=medium" >> $GITHUB_OUTPUT
+            echo "CIRCLE=true" >> $GITHUB_OUTPUT
+            echo "COMMIT_TO_REPO=true" >> $GITHUB_OUTPUT
+          else
+            echo "SRC_PATH=${{ github.event.inputs.src_path }}" >> $GITHUB_OUTPUT
+            echo "SIZE=${{ github.event.inputs.size }}" >> $GITHUB_OUTPUT
+            echo "FRAMES=${{ github.event.inputs.frames }}" >> $GITHUB_OUTPUT
+            echo "FPS=${{ github.event.inputs.fps }}" >> $GITHUB_OUTPUT
+            echo "GLOW=${{ github.event.inputs.glow }}" >> $GITHUB_OUTPUT
+            echo "CIRCLE=${{ github.event.inputs.circle }}" >> $GITHUB_OUTPUT
+            echo "COMMIT_TO_REPO=${{ github.event.inputs.commit_to_repo }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Resolve glow parameters
         id: params
         shell: bash
         run: |
-          case "${{ github.event.inputs.glow }}" in
+          case "${{ steps.defaults.outputs.GLOW }}" in
             dezent)
               echo "PULSE_BRIGHT=0.28" >> $GITHUB_OUTPUT
               echo "PULSE_BLUR=6.0" >> $GITHUB_OUTPUT
@@ -80,23 +115,23 @@ jobs:
 
       - name: Verify source exists
         run: |
-          if [ ! -f "${{ github.event.inputs.src_path }}" ]; then
-            echo "::error::Source image not found at ${{ github.event.inputs.src_path }}. Commit your PNG there and rerun this workflow." && exit 1
+          if [ ! -f "${{ steps.defaults.outputs.SRC_PATH }}" ]; then
+            echo "::error::Source image not found at ${{ steps.defaults.outputs.SRC_PATH }}. Commit your PNG there and rerun this workflow." && exit 1
           fi
 
       - name: Build GIF
         run: |
           mkdir -p build
-          python scripts/glow_pulse.py \
-            --in "${{ github.event.inputs.src_path }}" \
+          python .github/workflows/scripts/glow_pulse.py \
+            --in "${{ steps.defaults.outputs.SRC_PATH }}" \
             --out "build/discord_logo.gif" \
-            --size "${{ github.event.inputs.size }}" \
-            --frames "${{ github.event.inputs.frames }}" \
-            --fps "${{ github.event.inputs.fps }}" \
+            --size "${{ steps.defaults.outputs.SIZE }}" \
+            --frames "${{ steps.defaults.outputs.FRAMES }}" \
+            --fps "${{ steps.defaults.outputs.FPS }}" \
             --pulse-bright "${{ steps.params.outputs.PULSE_BRIGHT }}" \
             --pulse-blur "${{ steps.params.outputs.PULSE_BLUR }}" \
             --max-rotate "${{ steps.params.outputs.MAX_ROTATE }}" \
-            $([ "${{ github.event.inputs.circle }}" = "true" ] && echo --keep-circle || true)
+            $([ "${{ steps.defaults.outputs.CIRCLE }}" = "true" ] && echo --keep-circle || true)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -106,7 +141,7 @@ jobs:
           retention-days: 30
 
       - name: Commit GIF back to repo
-        if: ${{ github.event.inputs.commit_to_repo == 'true' }}
+        if: ${{ steps.defaults.outputs.COMMIT_TO_REPO == 'true' }}
         run: |
           mkdir -p assets
           cp build/discord_logo.gif assets/discord_logo.gif
@@ -116,6 +151,15 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Add generated Discord logo GIF"
+            # Add info about trigger type to commit message
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              git commit -m "Add generated Discord logo GIF (manual trigger)"
+            elif [ "${{ github.event_name }}" = "push" ]; then
+              git commit -m "Auto-generate Discord logo GIF (logo updated)"
+            elif [ "${{ github.event_name }}" = "schedule" ]; then
+              git commit -m "Auto-generate Discord logo GIF (scheduled)"
+            else
+              git commit -m "Add generated Discord logo GIF"
+            fi
             git push
           fi

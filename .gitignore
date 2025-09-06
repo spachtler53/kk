@@ -1,0 +1,24 @@
+# Build artifacts
+build/
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+
+# Generated files that should be committed
+# assets/discord_logo.gif - this should be committed as it's the output
+
+# Temporary files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Local configuration (optional override)
+# discord-gif-config.json - users can customize locally
