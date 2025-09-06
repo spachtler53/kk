@@ -1,0 +1,121 @@
+name: Discord Logo GIF
+
+on:
+  workflow_dispatch:
+    inputs:
+      src_path:
+        description: Path to source PNG inside repo (e.g., assets/logo.png)
+        required: true
+        default: assets/logo.png
+      size:
+        description: Square size in pixels
+        required: true
+        default: "512"
+      frames:
+        description: Frames per loop
+        required: true
+        default: "40"
+      fps:
+        description: Frames per second
+        required: true
+        default: "20"
+      glow:
+        description: Glow intensity preset
+        required: true
+        type: choice
+        options: [dezent, medium, kraeftig]
+        default: medium
+      circle:
+        description: Round transparent crop for Discord-style icon
+        required: true
+        type: choice
+        options: ["true", "false"]
+        default: "true"
+      commit_to_repo:
+        description: Commit generated GIF to assets/discord_logo.gif
+        required: true
+        type: choice
+        options: ["true", "false"]
+        default: "true"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pillow
+
+      - name: Resolve glow parameters
+        id: params
+        shell: bash
+        run: |
+          case "${{ github.event.inputs.glow }}" in
+            dezent)
+              echo "PULSE_BRIGHT=0.28" >> $GITHUB_OUTPUT
+              echo "PULSE_BLUR=6.0" >> $GITHUB_OUTPUT
+              echo "MAX_ROTATE=1.0" >> $GITHUB_OUTPUT
+              ;;
+            medium)
+              echo "PULSE_BRIGHT=0.38" >> $GITHUB_OUTPUT
+              echo "PULSE_BLUR=7.0" >> $GITHUB_OUTPUT
+              echo "MAX_ROTATE=1.5" >> $GITHUB_OUTPUT
+              ;;
+            kraeftig)
+              echo "PULSE_BRIGHT=0.50" >> $GITHUB_OUTPUT
+              echo "PULSE_BLUR=8.5" >> $GITHUB_OUTPUT
+              echo "MAX_ROTATE=2.0" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Verify source exists
+        run: |
+          if [ ! -f "${{ github.event.inputs.src_path }}" ]; then
+            echo "::error::Source image not found at ${{ github.event.inputs.src_path }}. Commit your PNG there and rerun this workflow." && exit 1
+          fi
+
+      - name: Build GIF
+        run: |
+          mkdir -p build
+          python scripts/glow_pulse.py \
+            --in "${{ github.event.inputs.src_path }}" \
+            --out "build/discord_logo.gif" \
+            --size "${{ github.event.inputs.size }}" \
+            --frames "${{ github.event.inputs.frames }}" \
+            --fps "${{ github.event.inputs.fps }}" \
+            --pulse-bright "${{ steps.params.outputs.PULSE_BRIGHT }}" \
+            --pulse-blur "${{ steps.params.outputs.PULSE_BLUR }}" \
+            --max-rotate "${{ steps.params.outputs.MAX_ROTATE }}" \
+            $([ "${{ github.event.inputs.circle }}" = "true" ] && echo --keep-circle || true)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: discord-logo-gif
+          path: build/discord_logo.gif
+          retention-days: 30
+
+      - name: Commit GIF back to repo
+        if: ${{ github.event.inputs.commit_to_repo == 'true' }}
+        run: |
+          mkdir -p assets
+          cp build/discord_logo.gif assets/discord_logo.gif
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/discord_logo.gif
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Add generated Discord logo GIF"
+            git push
+          fi
